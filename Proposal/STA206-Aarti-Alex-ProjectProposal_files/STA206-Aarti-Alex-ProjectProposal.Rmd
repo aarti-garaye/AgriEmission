@@ -1,0 +1,368 @@
+---
+title: "STA 206 Final Proposal"
+subtitle: "Prof. Jie Peng"
+author:
+  - "Aarti Garaye (asgaraye@ucdavis.edu)"
+  - "Alex Dortzbach (akdortzbach@ucdavis.edu)"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+urlcolor: blue
+header-includes:
+  - \usepackage{tikz}
+  - \usepackage{amsmath}
+  - \usepackage{amsthm}
+  - \usepackage{dsfont}
+  - \usepackage{bbm}
+  - \usepackage{float}
+  - \usepackage{cancel}
+  - \usepackage{xcolor}
+  - \DeclareMathOperator{\sign}{sign}
+  - \DeclareMathOperator{\Cov}{Cov}
+  - \DeclareMathOperator{\col}{col}
+  - \DeclareMathOperator{\E}{\mathbb{E}}
+  - \DeclareUnicodeCharacter{2060}{\nolinebreak}
+  - \DeclareMathOperator{\Var}{Var}
+  - \newcommand{\indep}{\perp\!\!\!\perp}
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Dataset
+
+We are using our own dataset for this project.
+
+## Source
+
+We are using the Agri-food CO2 Emission Dataset Forecasting ML curated by Alessandro Lo Bello on Kaggle, which cleans, preprocesses, and merges approximately a dozen individual datasets from the Food and Agriculture Organization (FAO) and the IPCC into a comprehensive, cohesive dataset for analysis and forecasting. The dataset captures agri-food CO2 emissions—reported as approximately 62% of global annual emissions—making this sector a significant focus when studying climate change. Understanding and addressing the environmental impact of the agri-food industry is therefore crucial for mitigating climate change and developing sustainable practices within the sector.
+
+## Data Description and Summary
+
+The dataset has 7k rows and 31 columns. The dataset used for the study on CO2 emissions and temperature change for each country from 1990 to 2020 was compiled using data from the FAO (Food and Agriculture Organization of the United Nations) and IPCC (Intergovernmental Panel on Climate Change). All the emission were recorded in kilotones (kt): 1kt = 1000 kg.
+
+Because 31 variables is too long to list in dense paragraphs, we group them into a summary table showing type and units: 
+\newpage
+
+```{r variable-table, echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+library(kableExtra)
+
+var_table <- data.frame(
+  Category = c(
+    "Identifiers",
+    "Time",
+    "Response (Targets)",
+    "Land Use & Fires",
+    "On-Farm Production",
+    "Supply Chain & Industry",
+    "Demographics"
+  ),
+  `Variable Names` = c(
+    "Area (Country/Region)",
+    "Year",
+    "Average Temperature °C, total_emission",
+    "Savanna fires, Forest fires, Fires in organic soils, Fires in humid tropical forests, Forestland, Net Forest conversion, Drained organic soils (CO2)",
+    "Crop Residues, Rice Cultivation, Manure Management, Manure applied to Soils, Manure left on Pasture, On-farm Electricity Use, On-farm energy use",
+    "Pesticides Manufacturing, Fertilizers Manufacturing, IPPU (Industrial Processes), Food Transport, Food Processing, Food Packaging, Food Retail, Food Household Consumption, Agrifood Systems Waste Disposal",
+    "Rural population, Urban population, Total Population - Male, Total Population - Female"
+  ),
+  Type = c(
+    "Categorical",
+    "Quantitative (Discrete)",
+    "Quantitative (Continuous)",
+    "Quantitative (Continuous)",
+    "Quantitative (Continuous)",
+    "Quantitative (Continuous)",
+    "Quantitative (Discrete)"
+  ),
+  `Measurement Units` = c(
+    "Nominal text (236 levels)",
+    "Calendar year (1990–2020)",
+    "Degrees Celsius (°C) anomaly; Kilotons (kt) of CO2 equivalent",
+    "Kilotons (kt) of CO2 equivalent",
+    "Kilotons (kt) of CO2 equivalent",
+    "Kilotons (kt) of CO2 equivalent",
+    "Number of individuals (count)"
+  ),
+  check.names = FALSE
+)
+
+kable(var_table, format = "latex", booktabs = TRUE, caption = "Summary of Dataset Variables") %>%
+  kable_styling(latex_options = c("striped"), font_size = 9) %>%
+  column_spec(1, bold = TRUE, width = "2.8cm") %>%
+  column_spec(2, width = "6.5cm") %>%
+  column_spec(3, width = "2.8cm") %>%
+  column_spec(4, width = "3.0cm")
+```
+
+
+# Question of Interest
+
+Global food systems account for roughly one-third of anthropogenic greenhouse gas emissions, yet mitigation policies often struggle to pinpoint where interventions yield the highest environmental return. We are mainly interested in two questions:
+
+1. Which specific stages of the food supply chain are most strongly linked to observed surface temperature warming? Do different farming practices have a significant impact on the surface temperature?
+
+2. How does a nation's structural makeup (demographic profile, land dynamics, population breakdown, etc.) affect its total emission? 
+
+To avoid algebraic redundancy and severe multicollinearity, we separate our predictors into two distinct regression frameworks corresponding to our two response variables. Question 1's response variable will be Average Temperature and Question 2's will be total_emission. Some relevant predictors for question 1 will be pesticides manufacturing, fertilizers manufacturing, food processing, manure management, etc. And for question 2 we will focus more on rural vs urban population, forest fires, tropical forests, net forest conversion, rice cultivation etc. 
+
+# Analysis Plan
+
+We will investigate both questions by using regression techniques learned in class.
+
+## Exploratory Analysis
+
+We will inspect the missing values across all observations and figure out a way of handling them. This will help us verify whether `total_emission` is an exact mathematical sum of the individual emission columns. If it is, we will define non-forest or non-rice aggregate emissions for Question 2 when using `Forest fires`, `Net Forest conversion`, or `Rice Cultivation` as predictors so we are not modeling an exact algebraic identity.
+
+### Missing Values
+```{r, echo=FALSE}
+data <- read.csv("./Agrofood_co2_emission.csv")
+kable(stack(colSums(is.na(data))), caption = "Missing data per variable")
+```
+
+Note, none of our response variables have missing values. For the predictor missing values, we will handle them according to the situation later in the project.
+
+\newpage
+
+### Summary Statistics
+
+```{r echo=FALSE}
+library(knitr)
+library(kableExtra)
+
+key_summary_cols <- c(
+  "Average Temperature (°C)"  = "Average.Temperature..C",
+  "Total Emission"            = "total_emission",
+  "Urban Population"          = "Urban.population",
+  "Rice Cultivation"          = "Rice.Cultivation",
+  "On-Farm Electricity Use"   = "On.farm.Electricity.Use",
+  "Pesticides Manufacturing"  = "Pesticides.Manufacturing",
+  "Fertilizers Manufacturing" = "Fertilizers.Manufacturing",
+  "Food Processing"           = "Food.Processing",
+  "Manure Management"         = "Manure.Management"
+)
+
+# Use scientific notation for large values (>= 100,000); 4 decimals otherwise
+fmt_num <- function(val) {
+  ifelse(
+    abs(val) >= 1e5,
+    formatC(val, format = "e", digits = 2),
+    formatC(val, format = "f", digits = 4, big.mark = ",")
+  )
+}
+
+summary_table <- do.call(rbind, lapply(names(key_summary_cols), function(label) {
+  x <- data[[key_summary_cols[[label]]]]
+  data.frame(
+    Variable  = label,
+    Min       = fmt_num(min(x, na.rm = TRUE)),
+    `1st Qu.` = fmt_num(quantile(x, 0.25, na.rm = TRUE, names = FALSE)),
+    Median    = fmt_num(median(x, na.rm = TRUE)),
+    Mean      = fmt_num(mean(x, na.rm = TRUE)),
+    `3rd Qu.` = fmt_num(quantile(x, 0.75, na.rm = TRUE, names = FALSE)),
+    Max       = fmt_num(max(x, na.rm = TRUE)),
+    `Std Dev` = fmt_num(sd(x, na.rm = TRUE)),
+    NAs       = formatC(sum(is.na(x)), format = "d", big.mark = ","),
+    check.names = FALSE
+  )
+}))
+
+kable(
+  summary_table,
+  format = "latex",
+  longtable = FALSE,
+  booktabs = TRUE,
+  row.names = FALSE,
+  align = c("l", rep("r", 8)),
+  caption = "Key Variables: Descriptives and Spread Metrics"
+) |>
+  kable_styling(
+    latex_options = c("scale_down", "hold_position")
+  )
+```
+
+From this we see symmetry in Surface Temperature vs. Extreme Right-Skewness in predictors. `Average.Temperature..C` is fairly symmetric and well-behaved, with its mean ($0.873^\circ\text{C}$) closely matching its median ($0.834^\circ\text{C}$) and a tight standard deviation ($0.556^\circ\text{C}$). In sharp contrast, `total_emission` and every predictor exhibit severe right-skewness where the mean is vastly pulled above the median by massive agricultural economies—for example, `On.farm.Electricity.Use` has a median of just $29.12\text{ kt}$ compared to a mean of $1,626.68\text{ kt}$ and a maximum over $165,000\text{ kt}$. 
+
+Additionally, total_emission contains negative values, and there are some variables with missing data that will need to be handled before modeling. 
+
+
+### Visualizations
+
+We first look at the correlation matrix of some of the numerical values we think are impactful to help us find candidate models.
+
+```{r, warning=FALSE, echo=FALSE}
+numeric_data <- data[sapply(data, is.numeric)]
+cov_matrix <- cov(numeric_data, use = "complete.obs")
+# 2. Heatmap of Correlations for a subset of major emission sources to keep it readable
+library(reshape2)
+library(ggplot2)
+
+# Selecting some key variables based on the structure
+key_cols <- c("total_emission", "Savanna.fires", "Forest.fires", "Crop.Residues",
+              "Rice.Cultivation", "Food.Transport", "Forestland", "On.farm.energy.use")
+
+# Filter numeric_data to key columns that exist
+key_numeric_data <- numeric_data[, colnames(numeric_data) %in% key_cols]
+
+# Calculate correlation
+cor_matrix <- cor(key_numeric_data, use = "complete.obs")
+
+# Melt the correlation matrix for ggplot
+melted_cor <- melt(cor_matrix)
+
+ggplot(data = melted_cor, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Correlation Heatmap of Key Emission Sources", x = "", y = "")
+```
+
+We also look at some of the scatterplots for each predictor. This will give us a baseline multiple linear regression candidate model.
+
+```{r echo=FALSE}
+# 1. Analysis for Response Variable: total_emission
+# Define the predictors for emissions
+emission_response <- "total_emission"
+emission_predictors <- c("Pesticides.Manufacturing", "Fertilizers.Manufacturing", "Food.Processing", "Manure.Management")
+
+# Subset and clean data beforehand to avoid passing na.action to graphical parameters
+emission_data <- na.omit(data[, c(emission_response, emission_predictors)])
+
+# Clean display labels (underlying data and columns remain unchanged)
+emission_plot_labels <- c(
+  "Total\nEmission",
+  "Pesticides\nManufacturing",
+  "Fertilizers\nManufacturing",
+  "Food\nProcessing",
+  "Manure\nManagement"
+)
+emission_row_labels <- c(
+  "Total Emission",
+  "Pesticides Manufacturing",
+  "Fertilizers Manufacturing",
+  "Food Processing",
+  "Manure Management"
+)
+emission_col_labels <- c(
+  "Total Emission",
+  "Pesticides Mfg.",
+  "Fertilizers Mfg.",
+  "Food Processing",
+  "Manure Mgmt."
+)
+
+# Create the scatterplot matrix with extra top margin to prevent title clipping
+pairs(
+  emission_data,
+  labels = emission_plot_labels,
+  main = "Scatterplot Matrix: Total Emissions & Predictors",
+  pch = 19,
+  col = "steelblue",
+  cex = 0.55,
+  cex.labels = 0.95,
+  oma = c(3, 3, 5, 3)
+)
+
+# Calculate and format the correlation matrix
+emission_cor <- cor(emission_data, use = "complete.obs")
+dimnames(emission_cor) <- list(emission_row_labels, emission_col_labels)
+
+knitr::kable(
+  emission_cor,
+  digits = 3,
+  booktabs = TRUE,
+  align = rep("r", ncol(emission_cor)),
+  caption = "Sample Correlations for Total Emissions"
+) |>
+  kableExtra::kable_styling(
+    latex_options = c("scale_down", "hold_position")
+  )
+```
+Unlike surface temperature, `total_emission` displays strong, upward-sloping linear trends with `Fertilizers.Manufacturing`, `Food.Processing`, and `Manure.Management` (seen clearly in the top row). Rather than forming a uniform cloud, the points trace smooth curves, reflecting individual countries evolving year by year from 1990 to 2020.
+
+Notice that the `total_emission` axis extends below zero (down to roughly -500,000 kt). This occurs because nations with large net forest carbon sinks (`Forestland` or `Net Forest conversion`) have negative net emissions, which means a standard $\log(Y)$ transformation cannot be applied directly without shifting or handling negative values.
+
+
+```{r echo=FALSE}
+# 2. Analysis for Response Variable: Average.Temperature..C
+# Define the predictors for temperature
+temp_response <- "Average.Temperature..C"
+temp_predictors <- c("Urban.population", "Rice.Cultivation", "On.farm.Electricity.Use")
+
+# Subset and clean data beforehand to avoid passing na.action to graphical parameters
+temp_data <- na.omit(data[, c(temp_response, temp_predictors)])
+
+# Clean display labels (underlying data and columns remain unchanged)
+plot_labels <- c(
+  "Avg. Temperature\n(°C)",
+  "Urban\nPopulation",
+  "Rice\nCultivation",
+  "On-Farm\nElectricity Use"
+)
+table_labels <- c(
+  "Avg. Temperature (°C)",
+  "Urban Population",
+  "Rice Cultivation",
+  "On-Farm Electricity Use"
+)
+
+# Create the scatterplot matrix with extra top margin to prevent title clipping
+pairs(
+  temp_data,
+  labels = plot_labels,
+  main = "Scatterplot Matrix: Temperature & Predictors",
+  pch = 19,
+  col = "forestgreen",
+  cex = 0.6,
+  cex.labels = 1.05,
+  oma = c(3, 3, 5, 3)
+)
+
+# Calculate and format the correlation matrix
+temp_cor <- cor(temp_data, use = "complete.obs")
+dimnames(temp_cor) <- list(table_labels, table_labels)
+
+knitr::kable(
+  temp_cor,
+  digits = 3,
+  booktabs = TRUE,
+  align = rep("r", ncol(temp_cor)),
+  caption = "Sample Correlations for Average Temperature"
+) |>
+  kableExtra::kable_styling(
+    latex_options = c("scale_down", "hold_position")
+  )
+```
+
+Looking across the top row, `Average.Temperature..C` exhibits a wide vertical spread near zero for small values of `Urban.population`, `Rice.Cultivation`, and `On.farm.Electricity.Use`, funneling slightly toward positive anomalies (around 0.5°C to 1.5°C) at extreme predictor values. There is no strong, simple linear trend between raw country-level emissions and annual temperature anomalies. 
+
+All three predictors (`Urban.population`, `Rice.Cultivation`, and `On.farm.Electricity.Use`) are heavily right-skewed, with the vast majority of observations clustered near the origin and a few distinct trajectories extending outward. These distinct curves represent time-series paths (1990–2020) for a handful of massive agricultural nations (such as China and India).
+
+
+### Candidate Model
+
+We will build and compare multiple models for each response variable to test linear, non-linear, and interaction effects:
+
+*Model 1 ($Y_1$):* Regress `Average Temperature °C` on supply-chain predictors (`Pesticides Manufacturing`, `Fertilizers Manufacturing`, `Food Processing`, `Food Transport`) and farming practice predictors (`Manure Management`, `Crop Residues`, `Rice Cultivation`)
+
+*Model 2 ($Y_2$):* Regress `total_emission` on demographic makeup (`Urban population`, `Rural population`, gender ratios) and land-use dynamics (`Net Forest conversion`, `Forest fires`, `Fires in humid tropical forests`, `Rice Cultivation`)
+
+Note, we might include some indicator variables for year and population size depending on the situation.
+
+### Diagnostic Check
+
+We will check standard linear regression assumptions on our selected models. Linearity, Homosexuality, Multidisciplinary, and Normality for prediction. 
+
+### Potential Difficulties
+
+There might be high multicollinearity in the data. There could also be some algebraic redundancy in total_emission because it aggregates individual emission columns. Something to also consider is how standardization would look like for our dataset. Because the scatterplots indicate substantial nonlinearity and right-skewness, we might have to consider multiple transformations. 
