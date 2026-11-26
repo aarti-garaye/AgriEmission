@@ -1,0 +1,243 @@
+---
+title: "Drivers of Agri-Food CO2 Emissions and Surface Temperature Warming: A Regression Analysis (1990–2020)"
+subtitle: "Prof. Jie Peng"
+author:
+  - "Aarti Garaye (asgaraye@ucdavis.edu)"
+  - "Alex Dortzbach (akdortzbach@ucdavis.edu)"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    extra_dependencies: ["float"]
+urlcolor: blue
+header-includes:
+  - \usepackage{tikz}
+  - \usepackage{amsmath}
+  - \usepackage{amsthm}
+  - \usepackage{dsfont}
+  - \usepackage{bbm}
+  - \usepackage{float}
+  - \usepackage{cancel}
+  - \usepackage{xcolor}
+  - \DeclareMathOperator{\sign}{sign}
+  - \DeclareMathOperator{\Cov}{Cov}
+  - \DeclareMathOperator{\col}{col}
+  - \DeclareMathOperator{\E}{\mathbb{E}}
+  - \DeclareUnicodeCharacter{2060}{\nolinebreak}
+  - \DeclareMathOperator{\Var}{Var}
+  - \newcommand{\indep}{\perp\!\!\!\perp}
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Abstract
+
+Global food systems account for roughly one-third of anthropogenic greenhouse gas emissions, yet climate mitigation policies often struggle to pinpoint where targeted interventions yield the highest environmental return. Understanding the specific drivers of agri-food emissions and their downstream thermal impacts is critical for designing sustainable agricultural policies that balance global food security with climate stabilization. In this study, we apply statistical regression modeling to a comprehensive panel dataset of roughly 7,000 country-year observations compiled from the Food and Agriculture Organization (FAO) and the Intergovernmental Panel on Climate Change (IPCC) spanning 1990 to 2020. We focus on two primary questions (1) which stages of the agri-food supply chain and agricultural practices are most strongly associated with observed surface temperature changes and (2) how a country's demographic composition and land-use dynamics relate to its total agri-food emissions.
+
+We first examine the distribution and temporal coverage of observations across countries before selecting a subset of countries for comparative analysis. We look at the global vs. country specific trend. We investigate global and country-specific emission trends and use a chronological training and testing framework, with observations from 1990–2015 used for model development and 2016–2020 reserved for out-of-time evaluation. 
+
+\textit{plan for the first question}
+
+For the second question we explore the relationships between total emissions and demographic characteristics, land-use changes, fire activity, agricultural practices, and average temperature. Regression models are developed to assess these relationships while accounting for potential multicollinearity, nonlinear associations, and temporal structure. Our analysis aims to identify the demographic and environmental characteristics most strongly associated with variation in agri-food emissions, while evaluating the extent to which these relationships generalize to more recent years. The findings provide insight into the structural factors associated with national agri-food emission patterns and highlight potential directions for further research on sustainable agricultural practices and climate mitigation.
+
+# Introduction
+
+The agricultural and food production sectors play a substantial role in global greenhouse gas emissions and are therefore an important component of climate change mitigation efforts. From agricultural production and land-use changes to food processing, transportation, and consumption, emissions are generated throughout the food supply chain. Understanding the factors associated with these emissions is essential for identifying opportunities to develop more sustainable agricultural systems and reduce the environmental impact of food production.
+
+However, the environmental impact of agricultural systems is not uniform across countries. Differences in population size, urbanization, agricultural practices, land availability, and forest dynamics can contribute to substantial variation in national emission patterns. For example, countries with larger populations may have greater food production and consumption demands, while changes in forest cover and fire activity may influence the balance between carbon emissions and natural carbon sinks. Understanding how these structural characteristics relate to total emissions can provide a broader perspective on the factors associated with environmental impact beyond individual stages of food production.
+
+To investigate these questions, we use the Agri-food CO2 Emission Dataset Forecasting ML, curated by Alessandro Lo Bello and available through Kaggle. The dataset combines and preprocesses approximately a dozen sources from the Food and Agriculture Organization of the United Nations (FAO) and the Intergovernmental Panel on Climate Change (IPCC). It contains 6,965 annual observations across 236 countries and regions from 1990 through 2020, with 31 variables describing agricultural emissions, food supply-chain activities, land-use changes, population characteristics, and average temperature. Emission-related quantities are reported in kilotons (kt) of CO2 equivalent, while demographic variables represent population counts and average temperature is measured in degrees Celsius.
+
+Our analysis begins with exploratory data analysis to understand the distribution, completeness, and temporal structure of the observations. For the second research question, we examine the representation of countries in the dataset and identify a subset with sufficient observations and temporal coverage for more detailed comparisons. We then investigate global and country-specific emission trends before exploring the relationships between total emissions and demographic, land-use, and environmental characteristics. To evaluate the predictive performance of our regression models, we use a chronological data split, reserving observations from 2016–2020 for testing and using 1990–2015 for model development.
+
+# Methods and Results
+
+## Data Preparation
+The Agri-food CO2 Emission Dataset consists of annual observations for 236 countries and regions over the period 1990–2020, with 6,965 observations and 31 variables. Each observation corresponds to a country or region in a particular year. The dataset contains information on agricultural and food supply-chain emissions, land-use changes, fire activity, demographic characteristics, and average temperature.
+
+We organized the observations chronologically by country and year to facilitate the examination of temporal patterns. Since one of our objectives is to evaluate whether relationships identified in historical data generalize to subsequent years, we adopted a chronological training and testing split. Observations from 1990–2015 were designated as the training dataset, while observations from 2016–2020 were reserved for testing. This provides 26 years of historical data for model development and five subsequent years for out-of-time evaluation.
+
+```{r data-preparation, message=FALSE, warning=FALSE, echo=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(scales)
+
+# Load the dataset
+agri <- read.csv("~/Downloads/UCDavis/STA206A/FinalProject/AgriEmission/Data/Agrofood_co2_emission.csv")
+
+# Make sure the country and year identifiers are correctly formatted
+agri$Area <- as.character(agri$Area)
+agri$Year <- as.integer(agri$Year)
+
+# Sort observations by country and year
+agri <- agri %>%
+  arrange(Area, Year)
+
+# Define the training and testing periods
+train_data <- agri %>%
+  filter(Year >= 1990, Year <= 2015)
+
+test_data <- agri %>%
+  filter(Year >= 2016, Year <= 2020)
+
+# Display dataset dimensions
+split_summary <- data.frame(
+  Dataset = c("Full Dataset", "Training", "Testing"),
+  Start_Year = c(1990, 1990, 2016),
+  End_Year = c(2020, 2015, 2020),
+  Observations = c(nrow(agri), nrow(train_data), nrow(test_data)),
+  Countries = c(
+    n_distinct(agri$Area),
+    n_distinct(train_data$Area),
+    n_distinct(test_data$Area)
+  )
+)
+
+kable(split_summary, caption = "Temporal Training and Testing Split")
+```
+
+We are establishing a chronological split rather than randomly assigning observations to training and testing. This is important because our goal is to evaluate how well relationships learned from historical data generalize to subsequent years.
+
+Next, we examine the distribution of observations across countries. Since the dataset contains countries with varying amounts of historical data, we first assess their temporal coverage. We find that 194 countries have complete observations for all 31 years (1990–2020). Therefore, rather than selecting countries based on the number of observations, we focus on 15 countries chosen to provide variation in geographic regions, population sizes, and agricultural systems. This allows us to compare emissions patterns across countries with different characteristics while maintaining consistent temporal coverage.
+
+```{r select-15-countries, message=FALSE, warning=FALSE, echo=FALSE}
+# Select 15 countries for the analysis
+selected_countries <- c(
+  "United States of America",
+  "China",
+  "India",
+  "Brazil",
+  "Australia",
+  "Canada",
+  "Germany",
+  "France",
+  "Japan",
+  "Indonesia",
+  "Mexico",
+  "Argentina",
+  "South Africa",
+  "Russian Federation",
+  "United Kingdom of Great Britain and Northern Ireland"
+)
+
+# Filter the dataset to include selected countries
+selected_data <- agri %>%
+  filter(Area %in% selected_countries)
+
+# Count observations in each country
+selected_counts <- selected_data %>%
+  group_by(Area) %>%
+  summarise(
+    Train_Observations = sum(Year <= 2015),
+    Test_Observations = sum(Year >= 2016),
+    Total_Observations = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Total_Observations))
+
+# Display country observations
+kable(
+  selected_counts,
+  caption = "Observations for Selected Countries (1990–2020)"
+)
+```
+
+Looking at this information in terms of a graph. This gives us a general understanding of how emissions have changed over time before we investigate individual countries.
+
+```{r total-emission-global}
+# Calculate average total emissions across countries for each year
+global_trend <- agri %>%
+  group_by(Year) %>%
+  summarise(
+    Average_Emissions = mean(total_emission, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot overall emissions trend
+ggplot(global_trend,
+       aes(x = Year, y = Average_Emissions)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(
+    title = "Average Total Emissions Across Countries (1990–2020)",
+    x = "Year",
+    y = "Average Total Emissions"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\newpage
+
+# Appendix
+The code chunks for each part is here
+
+## Methods and Results
+
+### Data and Preparation
+
+```{r data-preparation-apen, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(scales)
+
+# Load the dataset
+agri <- read.csv("~/Downloads/UCDavis/STA206A/FinalProject/AgriEmission/Data/Agrofood_co2_emission.csv")
+
+# Make sure the country and year identifiers are correctly formatted
+agri$Area <- as.character(agri$Area)
+agri$Year <- as.integer(agri$Year)
+
+# Sort observations by country and year
+agri <- agri %>%
+  arrange(Area, Year)
+
+# Define the training and testing periods
+train_data <- agri %>%
+  filter(Year >= 1990, Year <= 2015)
+
+test_data <- agri %>%
+  filter(Year >= 2016, Year <= 2020)
+
+# Display dataset dimensions
+split_summary <- data.frame(
+  Dataset = c("Full Dataset", "Training", "Testing"),
+  Start_Year = c(1990, 1990, 2016),
+  End_Year = c(2020, 2015, 2020),
+  Observations = c(nrow(agri), nrow(train_data), nrow(test_data)),
+  Countries = c(
+    n_distinct(agri$Area),
+    n_distinct(train_data$Area),
+    n_distinct(test_data$Area)
+  )
+)
+
+kable(split_summary, caption = "Temporal Training and Testing Split")
+```
+
+
+
+
+
